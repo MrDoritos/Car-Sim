@@ -20,7 +20,10 @@
 #include <EGL/egl.h>
 #include <GLFW/glfw3.h>
 
-namespace car {
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+namespace common {
 
 enum Error : int {
     E_OK = 0,
@@ -49,6 +52,71 @@ struct Log {
     }
 };
 
+Log log(Log::INFO);
+Log debug(Log::DEBUG);
+Log error(Log::ERROR, std::cerr);
+
+}
+
+namespace gfx {
+
+using namespace common;
+
+const GLuint gfx_null = -1;
+
+struct Texture {
+    GLuint texture_id;
+
+    Texture():
+        texture_id(gfx_null)
+    {}
+
+    bool is_loaded() { return texture_id != gfx_null; }
+
+    void bind() {
+        glBindTexture(GL_TEXTURE_2D, texture_id);
+    }
+
+    void use(const int &unit) {
+        glActiveTexture(GL_TEXTURE0 + unit);
+    }
+
+    void use() {
+        bind();
+    }
+
+    Error load(const char *path) {
+        int width, height, channels;
+
+        unsigned char* image = stbi_load(path, &width, &height, &channels, 0);
+
+        if (!image) {
+            common::error << "Error opening image file: " << path << "\n";
+            return E_ERR;
+        }
+
+        glGenTextures(1, &texture_id);
+        glBindTexture(GL_TEXTURE_2D, texture_id);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    
+        stbi_image_free(image);
+    
+        return E_OK;
+    }
+};
+
+}
+
+namespace car {
+
+using namespace common;
+
 struct Program {
     Error handle_error(const char *str, int errcode = 1);
     Error reset();
@@ -75,9 +143,6 @@ struct GraphicsContext {
     {}
 };
 
-Log log(Log::INFO);
-Log debug(Log::DEBUG);
-Log error(Log::ERROR, std::cerr);
 Program program;
 GraphicsContext ctx;
 
