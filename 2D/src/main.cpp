@@ -31,6 +31,7 @@ struct Log {
     enum Type : int {
         INFO = 0,
         ERROR = 1,
+        DEBUG = 2,
     };
 
     const Type type;
@@ -49,21 +50,24 @@ struct Log {
 };
 
 struct Program {
-    Error handle_signal(int signal);
     Error handle_error(const char *str, int errcode = 1);
     Error reset();
     Error destroy();
     Error init();
     Error hint_exit();
     Error safe_exit(int errcode = 0);
+
+    static void handle_signal(int signal);
 };
 
 struct GraphicsContext {
     Error init();
     Error destroy();
 
+    static void framebuffer_size_callback(GLFWwindow *window, int width, int height);
+
     GLFWwindow *window;
-    glm::ivec4 initial_window;
+    glm::ivec4 initial_window, current_window;
 
     GraphicsContext():
         window(nullptr),
@@ -72,16 +76,15 @@ struct GraphicsContext {
 };
 
 Log log(Log::INFO);
+Log debug(Log::DEBUG);
 Log error(Log::ERROR, std::cerr);
 Program program;
 GraphicsContext ctx;
 
-void handle_signal(int sig) {
-    program.handle_signal(sig);
-}
-
 Error Program::init() {
-    signal(SIGINT, car::handle_signal);
+    signal(SIGINT, Program::handle_signal);
+
+    ctx.init();
 
     return E_OK;
 }
@@ -95,6 +98,8 @@ Error Program::destroy() {
 Error Program::safe_exit(int errcode) {
     destroy();
 
+    car::debug << "safe_exit: " << errcode << "\n";
+
     return E_OK;
 }
 
@@ -105,21 +110,71 @@ Error Program::handle_error(const char *str, int errcode) {
     return E_OK;
 }
 
+void Program::handle_signal(int signal) {
+    car::error << "Signal: " << signal << "\n";
+    program.hint_exit();
+}
+
 Error Program::hint_exit() {
+    glfwSetWindowShouldClose(ctx.window, 1);
+    
+    car::debug << "hint_exit\n";
+
     return E_OK;
+}
+
+void GraphicsContext::framebuffer_size_callback(GLFWwindow *window, int width, int height) {
+    ctx.current_window.z = width;
+    ctx.current_window.w = height;
+    glViewport(0, 0, width, height);
 }
 
 Error GraphicsContext::init() {
     if (!glfwInit())
-        program.handle_error("Failed to initialize GLFW");
+        return program.handle_error("Failed to initialize GLFW");
+
+    window = glfwCreateWindow(initial_window.z, initial_window.w, "Car Sim", nullptr, nullptr);
+
+    if (!window)
+        return program.handle_error("Failed to create window");
+
+    glfwMakeContextCurrent(window);
+
+    glfwSetFramebufferSizeCallback(window, GraphicsContext::framebuffer_size_callback);
+
+    glfwSwapInterval(1);
+
+    glfwGetWindowPos(window, &initial_window.x, &initial_window.y);
+    glfwGetWindowSize(window, &initial_window.z, &initial_window.w);
+
+    current_window = initial_window;
+
+    return E_OK;
+}
+
+Error GraphicsContext::destroy() {
+    glfwTerminate();
+
+    return E_OK;
 }
 
 }
 
 
 int main() {
-    car::log << "Hello World!\n";
-    car::log << 1;
+    using namespace car;
+
+    program.init();
+
+    while (!glfwWindowShouldClose(ctx.window)) {
+        glClearColor(1.0, 1.0, 1.0, 1.0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        glfwSwapBuffers(ctx.window);
+        glfwPollEvents();
+    }
+
+    program.safe_exit(0);
 
     return 0;
 }
